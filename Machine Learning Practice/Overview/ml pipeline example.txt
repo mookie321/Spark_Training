@@ -1,0 +1,43 @@
+//Sample ML pipeline from
+// https://blog.knoldus.com/2016/02/09/a-sample-ml-pipeline-for-clustering-in-spark/
+
+//create data frame of email, income, gender
+val input = sqlContext.createDataFrame(Seq(
+ ("a@email.com", 12000,"M"),
+ ("b@email.com", 43000,"M"),
+ ("c@email.com", 5000,"F"),
+ ("d@email.com", 60000,"M")
+)).toDF("email", "income","gender")
+
+//look at the data frame that was created
+input.show()
+
+
+//import packages
+import org.apache.spark.ml.feature.{OneHotEncoder, StringIndexer}
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.clustering.KMeans
+import org.apache.spark.ml.Pipeline
+ 
+//convert categorical attribute labels into label indexes
+val indexer = new StringIndexer().setInputCol("gender").setOutputCol("genderIndex")
+
+//convert categorical label indexes into numerical vectors
+val encoder = new OneHotEncoder().setInputCol("genderIndex").setOutputCol("genderVec")
+
+//combine all numerical features into a single feature vector
+val assembler = new VectorAssembler().setInputCols(Array("income","genderVec")).setOutputCol("features")
+
+//fit a K-Means model on the extracted features
+val kmeans = new KMeans().setK(2).setFeaturesCol("features").setPredictionCol("prediction")
+
+//create pipeline for the kmeans model
+val pipeline = new Pipeline().setStages(Array(indexer, encoder, assembler, kmeans))
+ 
+//Predict using K-Means model to get clusters for each data row
+val kMeansPredictionModel = pipeline.fit(input)
+val predictionResult = kMeansPredictionModel.transform(input)
+
+//look at the prediction result data frame
+predictionResult.show()
+

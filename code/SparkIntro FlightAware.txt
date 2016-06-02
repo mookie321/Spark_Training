@@ -1,0 +1,49 @@
+// Read in Data
+
+val df = sqlContext.read.json("/Users/mookie_transvoyant/Documents/spark-learning")
+// val df2 = sqlContext.read.json("/home/sparkuser/data")
+
+// Explore the data
+df.printSchema
+
+df.show
+df.show(3,false)
+
+// If you cache the data, it makes things go much faster
+df.cache
+df.show()  // After you cache, the first time will still take awhile
+df.show()  // The next time will be nearly instantaneous
+
+df.count()
+df.select($"timestamp").show()
+df.filter($"timestamp" < 1462144365845L).show()
+df.filter($"timestamp" === 1462144365845L).show()
+df.filter($"timestamp" < 1462144365845L).count()
+df.filter($"timestamp" < 1462144365845L).select($"timestamp").distinct().count()
+df.groupBy($"timestamp").count().show()
+myDF.select($"dest_icao").show()
+
+
+// Select some fields 
+df.registerTempTable("temp")
+val myDF = sqlContext.sql("select timestamp, data.flightAwareFlightId, data.flightIdentifier, data.altitude, data.latitude, data.longitude from temp")
+myDF.show(false)
+//different data set I used instead//
+val myDF = sqlContext.sql("select timestamp, data.arrivalTimestamp, data.destinationAirport.icao as dest_icao, data.flightAwareFlightId, data.flightIdentifier, data.originAirport.icao as origin_icao from temp")
+
+// How many records do we have for each flight?
+myDF.groupBy($"flightAwareFlightID").count().show(false)
+
+// Show me all the records for a particular flight
+myDF.filter($"flightAwareFlightID" === "SWA3663-1461907771-airline-0872").show(100)
+
+// Add a column with a human-readable timestamp
+val myDF2 = myDF.withColumn("timestamp_human", from_unixtime(myDF("timestamp").divide(1000)))
+
+// How many flights are in this file?
+myDF2.select("flightAwareFlightID").distinct().count()
+
+
+val csv1 = myDF2.rdd.map(x=>x.mkString(","))
+csv1.saveAsTextFile("/Users/shellystanley/Downloads/sample.csv")
+

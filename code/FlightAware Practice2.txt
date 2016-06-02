@@ -1,0 +1,26 @@
+// Read all the data from parqueFormat folder into spark
+//use sqlContext.read.parquet because it is a parquet file
+
+val df1= sqlContext.read.parquet("/Users/mookie_transvoyant/Documents/spark-learning/data/parquetFormat/basic.067e6c62-cdcb-4588-b270-ca398e5c3ee8") //departure
+val df2= sqlContext.read.parquet("/Users/mookie_transvoyant/Documents/spark-learning/data/parquetFormat/basic.900a3d78-dd16-4040-9ff3-8c4edea7420e") //arrival
+val df3= sqlContext.read.parquet("/Users/mookie_transvoyant/Documents/spark-learning/data/parquetFormat/basic.3dfab1c7-3968-4887-8d26-efbef1211903") //flightplan
+val df4= sqlContext.read.parquet("/Users/mookie_transvoyant/Documents/spark-learning/data/parquetFormat/basic.07eb8bdd-5cfb-4477-951b-12f7c12a8a2f") //
+val df5= sqlContext.read.parquet("/Users/mookie_transvoyant/Documents/spark-learning/data/parquetFormat/basic.a8b8080f-538f-455b-8493-11e51b1f0342") //position
+val df6= sqlContext.read.parquet("/Users/mookie_transvoyant/Documents/spark-learning/data/parquetFormat/basic.ac2fec2c-905e-401c-bc7d-eabc259f44c8") //cancellation
+
+// Want to use df5 which is position, cache it to make it run faster
+df5.cache
+
+// Explore the data
+df5.printSchema
+df5.show
+df5.select($"timestamp").show()
+df5.filter($"timestamp" < 1462144365845L).show()
+df5.filter($"timestamp" === 1462144365845L).show()
+df5.filter($"timestamp" < 1462144365845L).count()
+df5.filter($"timestamp" < 1462144365845L).select($"timestamp").distinct().count()
+df5.groupBy($"timestamp").count().show()
+
+
+
+

@@ -1,0 +1,22 @@
+/////*****http://www.artima.com/scalazine/articles/steps.html
+
+//launch the scala shell
+$ /Applications/scala=2.11.8/scalabin/scala
+
+//Declare a list of integers as a variable called "myNumbers"
+val myNumbers = List(1,2,5,3,2)
+
+//Declare a function, cube, that computes the cube (third power) of an Int
+def cube(a: Int): Int=a*a*a
+
+//Apply the cube function to myNumbers using the map function
+myNumbers.map(x=>cube(x))
+or
+myNumbers.map(cube)
+
+//Then also try writing the function inline in a map call, using closure notation.
+myNumbers.map{x => x * x * x}
+
+//Define a factorial function that computes n! = 1 * 2 * … * n given input n. 
+def factorial(n:Int):Int = if (n==0) 1 else n * factorial(n-1)
+

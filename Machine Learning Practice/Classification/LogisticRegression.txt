@@ -1,0 +1,21 @@
+//*******Logistic Regression is a method used to predict a binary response.
+//special case of Generalized Linear Models that predicts the probability of the outcome
+//The following example shows how to train a logistic regression model with elastic net regularization. 
+//elasticNetParam corresponds to α and regParam corresponds to λ.
+
+import org.apache.spark.ml.classification.LogisticRegression
+
+// Load training data
+val training = sqlContext.read.format("libsvm").load("/Applications/spark/data/mllib/sample_libsvm_data.txt")
+
+val lr = new LogisticRegression()
+  .setMaxIter(10)
+  .setRegParam(0.3)
+  .setElasticNetParam(0.8)
+
+// Fit the model
+val lrModel = lr.fit(training)
+
+// Print the coefficients and intercept for logistic regression
+println(s"Coefficients: ${lrModel.coefficients} Intercept: ${lrModel.intercept}")
+

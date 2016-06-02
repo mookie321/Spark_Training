@@ -1,0 +1,13 @@
+//StopWordsRemover takes input of a sequence of strings, and drops all the stop words(a,the,...) and drops them from the sequence
+import org.apache.spark.ml.feature.StopWordsRemover
+
+val remover = new StopWordsRemover()
+  .setInputCol("raw")
+  .setOutputCol("filtered")
+
+val dataSet = sqlContext.createDataFrame(Seq(
+  (0, Seq("I", "saw", "the", "red", "baloon")),
+  (1, Seq("Mary", "had", "a", "little", "lamb"))
+)).toDF("id", "raw")
+
+remover.transform(dataSet).show()

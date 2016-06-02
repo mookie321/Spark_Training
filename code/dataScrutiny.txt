@@ -1,0 +1,220 @@
+// Get sid/name pairs 
+
+// Start with a json file of all the sids in cdi-demo
+//(run in bash)$ curl -u kirkb:kirkb https://cdi-demo.transvoyant.com/ws/api/eventsource/type/RAW | cat > output.txt
+
+// Map the data to be able to read it in like Spark wants it
+val jsonRDD = sc.wholeTextFiles("/Users/shellystanley/output.txt").map(x => x._2)
+
+val outputJSON = sqlContext.read.json(jsonRDD)
+
+// Select the two fields we want
+val ev = outputJSON.select($"sid", $"name")
+
+scala> ev.count
+res6: Long = 510
+scala> ev.show(5, false)
++------------------------------------+--------------------------+
+|sid                                 |name                      |
++------------------------------------+--------------------------+
+|8fbb9f18-7ed1-495e-ad2f-ea127a0c0b11|US HAZMAT Incidents GeoRSS|
+|d87925d4-9aaf-480c-bee4-bb7fe8b70191|USAToday Geo              |
+|4046b633-9b54-4915-a6a6-d7474ebc5b0b|MyLocation                |
+|0d62698f-88d1-470c-872f-102a7b68cb3e|MyLocation                |
+|57a327b2-99fa-460b-a71f-06f6f2891f2b|Indianapolis Fire RSS     |
++------------------------------------+--------------------------+
+only showing top 5 rows
+
+////////////////////////////////////////
+// Get the file list from S3
+// aws s3 ls s3://cdi-events-partition --recursive --human-readable | cat > s3FileList.txt
+
+val fileList = sc.textFile("s3FileList.txt")
+
+// Remove a variable number of spaces (hack!)
+val lines1 = fileList.map(line => line.replaceAll("  ", " "))
+val lines2 = lines1.map(line => line.replaceAll("  ", " "))
+val lines0 = lines2.map(line => line.replaceAll("  ", " "))
+
+val lines = lines0.map(line => line.split(" "))
+
+// Original data looks like this: source.cdb5fff5-7a01-4976-aca1-61c05f21ad40/dt=2016-05-16/1_0_00000000000000004711.gz
+// line(4).split('.')(1).split('/')(0) gives us: cdb5fff5-7a01-4976-aca1-61c05f21ad40
+
+val rows = lines.map(line => (line(0), line(1), line(2).toDouble, line(3), line(4).split('.')(1).split('/')(0))).toDF("date", "time", "size", "unit", "stream")
+
+scala> rows.show(5, false)
++----------+--------+----+----+------------------------------------+
+|date      |time    |size|unit|stream                              |
++----------+--------+----+----+------------------------------------+
+|2016-04-01|11:50:59|1.0 |Byte|067e6c62-cdcb-4588-b270-ca398e5c3ee8|
+|2016-03-25|19:15:54|2.8 |MiB |067e6c62-cdcb-4588-b270-ca398e5c3ee8|
+|2016-03-25|19:15:54|11.0|MiB |067e6c62-cdcb-4588-b270-ca398e5c3ee8|
+|2016-03-25|19:15:54|8.8 |MiB |067e6c62-cdcb-4588-b270-ca398e5c3ee8|
+|2016-03-25|19:15:54|11.4|MiB |067e6c62-cdcb-4588-b270-ca398e5c3ee8|
++----------+--------+----+----+------------------------------------+
+only showing top 5 rows
+scala> rows.select($"unit").distinct.show
++-----+
+| unit|
++-----+
+| Byte|
+|  MiB|
+|Bytes|
+|  KiB|
++-----+
+
+// UDF to calculate the size based on the "unit"
+val actualSize: ((Double, String) => Double) = (arg1: Double, arg2: String) => {arg2 match { case "Byte" => arg1 / 1048576 case "MiB" => arg1 case "Bytes" => arg1 / 1048576 case "KiB" => arg1 / 1024}}
+
+val sqlfunc = udf(actualSize)
+ 
+val rows2 = rows.withColumn("inMiB", sqlfunc(rows("size"), rows("unit")))
+
+scala> rows2.show(5, false)
++----------+--------+----+----+------------------------------------+------------------+
+|date      |time    |size|unit|stream                              |inMiB             |
++----------+--------+----+----+------------------------------------+------------------+
+|2016-04-01|11:50:59|1.0 |Byte|067e6c62-cdcb-4588-b270-ca398e5c3ee8|9.5367431640625E-7|
+|2016-03-25|19:15:54|2.8 |MiB |067e6c62-cdcb-4588-b270-ca398e5c3ee8|2.8               |
+|2016-03-25|19:15:54|11.0|MiB |067e6c62-cdcb-4588-b270-ca398e5c3ee8|11.0              |
+|2016-03-25|19:15:54|8.8 |MiB |067e6c62-cdcb-4588-b270-ca398e5c3ee8|8.8               |
+|2016-03-25|19:15:54|11.4|MiB |067e6c62-cdcb-4588-b270-ca398e5c3ee8|11.4              |
++----------+--------+----+----+------------------------------------+------------------+
+only showing top 5 rows
+
+// Sum up the total per sid (in MiB, not MB!)
+val rows3 = rows2.select($"stream", $"inMiB").groupBy($"stream").sum()
+
+scala> rows3.count
+res122: Long = 230
+scala> rows3.show(5, false)
++------------------------------------+-------------------+
+|stream                              |sum(inMiB)         |
++------------------------------------+-------------------+
+|ac9610bc-d42e-4c1b-a565-5c722f85fc4b|0.03190670013427734|
+|peta-submitter                      |64.65636920928955  |
+|bd6b1646-ce7b-4a10-99a7-75ac90ed4990|16.3119297027588   |
+|c53d627c-7ddf-45f9-a1ab-327f0f505623|1011.9572265625003 |
+|14e83863-73ab-4edb-847d-642216b0aa6e|0.0046875          |
++------------------------------------+-------------------+
+only showing top 5 rows
+
+
+// Join Kirk's list with the S3 list
+
+val joined = ev.join(rows3, ev("sid") === rows3("stream")).drop($"stream")
+
+scala> joined.count
+res124: Long = 196
+scala> joined.show(5, false)
++------------------------------------+---------------------------+-------------------+
+|sid                                 |name                       |sum(inMiB)         |
++------------------------------------+---------------------------+-------------------+
+|ac9610bc-d42e-4c1b-a565-5c722f85fc4b|US Abuse of Power GeoRSS   |0.03190670013427734|
+|bd6b1646-ce7b-4a10-99a7-75ac90ed4990|Daily Mail Rss             |16.3119297027588   |
+|14e83863-73ab-4edb-847d-642216b0aa6e|US State Dept Travel Alerts|0.0046875          |
+|cb868058-43b3-4f7c-9b5a-9cc2ff3fdc9f|Barrons Geo                |1.5512180328369136 |
+|733c5e21-f30f-4552-b55b-0fea2f0eb6ba|CBC Canada Geo             |3.13894348144531   |
++------------------------------------+---------------------------+-------------------+
+only showing top 5 rows
+
+// find the missing streams
+val missing = rows3.select($"stream").except(joined.select($"sid"))
+
+scala> missing.count
+res125: Long = 34
+scala> missing.show(34, false)
++-------------------------------------+                                         
+|stream                               |
++-------------------------------------+
+|peta-submitter                       |
+|c53d627c-7ddf-45f9-a1ab-327f0f505623 |
+|1a058bfe-4766-412e-b4e8-446c28b26ebc |
+|9348120cd-4d80-4d66-b673-2c1e77370439|
+|74849045-c05d-4ac3-9334-956a4d4c3b22 |
+|d06656a6-b3e0-11e5-9f22-ba0be0483c18 |
+|cdb5fff5-7a01-4976-aca1-61c05f21ad40 |
+|8bc363dd-0bdf-43d1-a3e0-05e8b9143f6b |
+|49e0639e-bd70-4594-be1b-f7f620a25ae9 |
+|5c640f79-5d34-4993-8941-b95036fdcdf2 |
+|07eb8bdd-5cfb-4477-951b-12f7c12a8a2f |
+|peta-test-submitter                  |
+|gtn-peta-prod-submitter              |
+|98986e9c-898e-444f-81a6-6ffa613e1307 |
+|900a3d78-dd16-4040-9ff3-8c4edea7420e |
+|067e6c62-cdcb-4588-b270-ca398e5c3ee8 |
+|297CECD294D04F6187645F1BC9952D8E     |
+|8227fe6f-a799-48ae-8b45-e591bc9a544c |
+|9b6f2ecf-73fc-417a-9d80-4c1c3eb8542d |
+|e6fb2e89-cf59-4729-8772-6829ae9e78b1s|
+|3dfab1c7-3968-4887-8d26-efbef1211903 |
+|158a05ac-f072-496b-9cff-618d79fd32a2 |
+|bdf0ce41f-b843-46ea-a12a-802ead794209|
+|fd758342-8ce8-471c-9d95-a5d6a47aa54f |
+|8f8c6942-8e96-485c-92f5-badb871102ee |
+|1cc268f20-81b6-47fc-bc1b-fca73a30e9e9|
+|b08ac207-d956-4662-903f-59dc570f20c0 |
+|gtn-peta-test-submitter              |
+|c0bbb0f7-8770-464c-a64b-d479254deacc |
+|e0080278-9da1-403f-941b-2a7c50b05b1f |
+|ac2fec2c-905e-401c-bc7d-eabc259f44c8 |
+|a8b8080f-538f-455b-8493-11e51b1f0342 |
+|75fe4bba-83d4-4191-bbcd-133e125af88b |
+|05cbc699-4d8b-4d8c-b725-5332d1fdee26 |
++-------------------------------------+
+
+
+// Try the join again using the submitters listed on confluence (https://transvoyant.atlassian.net/wiki/display/SP/All+Submitters)
+
+val df = sqlContext.load("com.databricks.spark.csv", Map("path" -> "/Users/shellystanley/submitters.csv","header"->"false")).drop($"C2")
+
+val joined2 = df.join(rows3, df("C1") === rows3("stream")).drop($"stream")
+
+scala> joined2.count
+res5: Long = 206
+
+// find the missing streams
+val missing2 = rows3.select($"stream").except(joined2.select($"C1")).cache
+
+scala> missing2.count
+res8: Long = 24
+
+scala> missing2.show(24,false)
++-------------------------------------+
+|stream                               |
++-------------------------------------+
+|peta-submitter                       |
+|1a058bfe-4766-412e-b4e8-446c28b26ebc |
+|9348120cd-4d80-4d66-b673-2c1e77370439|
+|dac45e0e-0566-11e6-b512-3e1d05defe78 |
+|cdb5fff5-7a01-4976-aca1-61c05f21ad40 |
+|c6810422-0b1c-11e6-b512-3e1d05defe78 |
+|49e0639e-bd70-4594-be1b-f7f620a25ae9 |
+|07eb8bdd-5cfb-4477-951b-12f7c12a8a2f |
+|peta-test-submitter                  |
+|gtn-peta-prod-submitter              |
+|98986e9c-898e-444f-81a6-6ffa613e1307 |
+|900a3d78-dd16-4040-9ff3-8c4edea7420e |
+|067e6c62-cdcb-4588-b270-ca398e5c3ee8 |
+|297CECD294D04F6187645F1BC9952D8E     |
+|e6fb2e89-cf59-4729-8772-6829ae9e78b1s|
+|3dfab1c7-3968-4887-8d26-efbef1211903 |
+|158a05ac-f072-496b-9cff-618d79fd32a2 |
+|fd758342-8ce8-471c-9d95-a5d6a47aa54f |
+|a8e0b9d0-0bad-11e6-b512-3e1d05defe78 |
+|88a34c9a-723b-45a7-865e-425a8bc853a5 |
+|gtn-peta-test-submitter              |
+|c0992d8e-056b-11e6-b512-3e1d05defe78 |
+|ac2fec2c-905e-401c-bc7d-eabc259f44c8 |
+|a8b8080f-538f-455b-8493-11e51b1f0342 |
++-------------------------------------+
+
+
+// create CSVs
+
+val csv1 = rows3.rdd.map(x=>x.mkString(","))
+csv1.saveAsTextFile("/Users/shellystanley/Documents/IQT/Customer3/DataScrutiny/submitters")
+
+val csv2 = missing2.rdd.map(x=>x.mkString(","))
+csv2.saveAsTextFile("/Users/shellystanley/Documents/IQT/Customer3/DataScrutiny/missing")

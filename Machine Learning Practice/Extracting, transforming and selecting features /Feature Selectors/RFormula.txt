@@ -1,0 +1,17 @@
+//RFormula selects columns specified by an R-model formula.
+//produces a vector column of features and a double column of labels.
+//can be used for linear regression...
+
+import org.apache.spark.ml.feature.RFormula
+
+val dataset = sqlContext.createDataFrame(Seq(
+  (7, "US", 18, 1.0),
+  (8, "CA", 12, 0.0),
+  (9, "NZ", 15, 0.0)
+)).toDF("id", "country", "hour", "clicked")
+val formula = new RFormula()
+  .setFormula("clicked ~ country + hour")
+  .setFeaturesCol("features")
+  .setLabelCol("label")
+val output = formula.fit(dataset).transform(dataset)
+output.select("features", "label").show()

@@ -1,0 +1,25 @@
+// create data frame 1, and data frame 3
+val df1 = sqlContext.read.parquet("/Users/mookie_transvoyant/Documents/spark-learning/data/parquetFormat/basic.3dfab1c7-3968-4887-8d26-efbef1211903")
+val df3 = sqlContext.read.parquet("/Users/mookie_transvoyant/Documents/spark-learning/data/parquetFormat/basic.067e6c62-cdcb-4588-b270-ca398e5c3ee8") 
+ 
+ //print schema both data frames to see what they are
+df1.printSchema()
+df3.printSchema()
+
+//select certain variables from each data frame
+val df1a = df1.select($"data.flightIdentifier",$"data.flightAwareFlightId",$"data.filedAltitude",$"data.filedSpeed",$"data.originAirport.icao",$"data.destinationAirport.icao").toDF("flightIdentifier","flightAwareFlightId","filedAltitude","filedSpeed","originIcao","destinIca")
+val df3a = df3.select($"data.flightAwareFlightId",$"data.departureTimestamp",$"data.arrivalTimestamp",$"data.createdTimestamp").withColumnRenamed("flightAwareFlightId","flightId")
+
+//join the to dataframes
+val dfJoin = df1a.join(df3a, $"flightAwareFlightId" === $"flightid").drop("flightid")
+
+//print schema the joint data frame to see what it is
+dfJoin.printSchema()
+
+//explore the data frames
+df1.count()
+df3.count()
+dfJoin.count()
+df1a.select($"flightAwareFlightId").distinct().count()
+df3a.select($"flightId").distinct().count()
+dfJoin.select($"flightAwareFlightId").distinct().count()
